@@ -20,6 +20,12 @@ h1{font-size:clamp(30px,8vw,48px);letter-spacing:.12em;margin:0;color:#ffe4f1;li
 #field{display:block;margin-top:16px;width:100%;height:clamp(250px,49svh,560px);touch-action:none;background:#141027;border:1px solid var(--line);border-radius:22px;outline-offset:4px}
 .legend{padding:7px 4px;font-size:12px;color:var(--muted);flex-wrap:wrap}
 .dots{display:flex;gap:13px}.dots span::before{content:"";display:inline-block;width:8px;height:8px;margin-right:5px;border-radius:50%;background:var(--dot)}
+.map-toggle{font-size:.85rem;min-height:36px;padding:4px 10px}
+#star-map{margin:6px 0 12px}
+#star-map h2{margin:0;font-size:1rem}
+#star-map p{margin:.4rem 0;color:var(--muted);font-size:.85rem}
+#map-canvas{display:block;width:100%;height:clamp(120px,25vw,160px);margin:.6rem 0;border:1px solid var(--line);border-radius:12px;background:#181126}
+#map-coordinates{font-variant-numeric:tabular-nums;min-height:1.4em}
 .card{margin-top:8px;background:#21182f;border:1px solid var(--line);border-radius:17px;padding:12px}
 .row{flex-wrap:wrap}.row + .row{margin-top:9px}
 button,input{font:inherit;min-height:42px;border:1px solid var(--line);border-radius:11px}
@@ -41,7 +47,13 @@ dialog::backdrop{background:#0a061ace}dialog h2{margin:0;font-size:21px}dialog p
   <div class="score"><strong id="score">0</strong><span>默契得分</span></div>
 </header>
 <canvas id="field" tabindex="0" aria-label="游戏区。拖动光球，或用方向键移动。"></canvas>
-<div class="legend"><div class="dots"><span style="--dot:var(--pink)">我</span><span style="--dot:var(--blue)">搭档</span></div><span>触碰爱心 +10</span></div>
+<div class="legend"><div class="dots"><span style="--dot:var(--pink)">我</span><span style="--dot:var(--blue)">搭档</span></div><span>触碰爱心 +10</span><button type="button" class="map-toggle" id="map-toggle" aria-controls="star-map" aria-expanded="false">打开虚拟星图</button></div>
+<section class="card" id="star-map" hidden aria-labelledby="map-heading">
+  <h2 id="map-heading">虚拟星图</h2>
+  <p>星图显示游戏内的位置。拖动光球即可移动。</p>
+  <canvas id="map-canvas" aria-hidden="true"></canvas>
+  <p id="map-coordinates"></p>
+</section>
 <section class="card" aria-label="游戏选项">
   <div id="menu">
     <div class="row"><button class="primary" id="host">创建双人房间</button><button id="practice">单人练习</button></div>
@@ -68,6 +80,9 @@ dialog::backdrop{background:#0a061ace}dialog h2{margin:0;font-size:21px}dialog p
 const ui = Object.fromEntries([...document.querySelectorAll('[id]')].map(el => [el.id, el]));
 const canvas = ui.field;
 const ctx = canvas.getContext('2d');
+const mapCanvas = ui['map-canvas'];
+const mapCtx = mapCanvas.getContext('2d');
+let mapSize = null;
 const colors = {me:'#ff91bf', other:'#92b9ff'};
 const scene = {width:1, height:1};
 const stars = Array.from({length:74}, () => [Math.random(), Math.random(), Math.random()]);
@@ -389,6 +404,72 @@ function drawHeart(x,y) {
   ctx.fill();
   ctx.restore();
 }
+function resizeMap() {
+  const {width, height} = mapCanvas.getBoundingClientRect();
+  if (!width || !height || !mapCtx) return;
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  mapCanvas.width = Math.round(width * ratio);
+  mapCanvas.height = Math.round(height * ratio);
+  mapCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  mapSize = {width, height};
+}
+function drawMap() {
+  if (ui['star-map'].hidden || !mapSize) return;
+  const {width, height} = mapSize;
+  const edge = 12;
+  const toMap = point => [
+    edge + point[0] * (width - edge * 2),
+    edge + point[1] * (height - edge * 2)
+  ];
+  const line = (a, b) => {
+    mapCtx.beginPath();
+    mapCtx.moveTo(...toMap(a));
+    mapCtx.lineTo(...toMap(b));
+    mapCtx.stroke();
+  };
+  const dot = (point, color, size) => {
+    mapCtx.fillStyle = color;
+    mapCtx.beginPath();
+    mapCtx.arc(...toMap(point), size, 0, Math.PI * 2);
+    mapCtx.fill();
+  };
+  mapCtx.clearRect(0, 0, width, height);
+  mapCtx.lineWidth = 1;
+  mapCtx.strokeStyle = '#473657';
+  for (let i = 0; i <= 4; i++) {
+    const step = i / 4;
+    line([step, 0], [step, 1]);
+    line([0, step], [1, step]);
+  }
+  const hasPartner = mode === 'online' || mode === 'practice';
+  if (hasPartner) {
+    mapCtx.strokeStyle = '#9a75a8';
+    line(me, other);
+    dot(other, colors.other, 5);
+  }
+  dot(me, colors.me, 5);
+  dot(heart, '#ffd69c', 4);
+  const coordinates = point => point.map(value => Math.round(value * 100)).join(', ');
+  const coordinatesText = [
+    '我 ' + coordinates(me),
+    hasPartner ? (mode === 'practice' ? '练习搭档 ' : '搭档 ') + coordinates(other) : '',
+    '爱心 ' + coordinates(heart)
+  ].filter(Boolean).join(' · ');
+  if (ui['map-coordinates'].textContent !== coordinatesText) {
+    ui['map-coordinates'].textContent = coordinatesText;
+  }
+}
+ui['map-toggle'].onclick = () => {
+  const panel = ui['star-map'];
+  panel.hidden = !panel.hidden;
+  ui['map-toggle'].setAttribute('aria-expanded', String(!panel.hidden));
+  ui['map-toggle'].textContent = panel.hidden ? '打开虚拟星图' : '收起虚拟星图';
+  if (!panel.hidden) {
+    resizeMap();
+    drawMap();
+  }
+};
+
 function render(now) {
   const {width:w,height:h} = scene;
   ctx.clearRect(0,0,w,h);
@@ -420,6 +501,7 @@ function render(now) {
     ctx.fillText('+10',w*.5,h*.19-(now-flash)/26);
     ctx.globalAlpha = 1;
   }
+  drawMap();
   requestAnimationFrame(render);
 }
 async function copy(value, success) {
@@ -473,6 +555,7 @@ if (roomPattern.test(inviteCode || '')) {
 resetBoard();
 resize();
 new ResizeObserver(resize).observe(canvas);
+new ResizeObserver(resizeMap).observe(mapCanvas);
 requestAnimationFrame(render);
 </script>
 </body>
