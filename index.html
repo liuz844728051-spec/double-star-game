@@ -24,7 +24,7 @@ h1{font-size:clamp(30px,8vw,48px);letter-spacing:.12em;margin:0;color:#ffe4f1;li
 #star-map{margin:6px 0 12px}
 #star-map h2{margin:0;font-size:1rem}
 #star-map p{margin:.4rem 0;color:var(--muted);font-size:.85rem}
-#map-canvas{display:block;width:100%;height:clamp(120px,25vw,160px);margin:.6rem 0;border:1px solid var(--line);border-radius:12px;background:#181126}
+#map-canvas{display:block;width:100%;height:clamp(172px,42vw,225px);margin:.6rem 0;border:1px solid var(--line);border-radius:12px;background:#181126}
 #map-coordinates{font-variant-numeric:tabular-nums;min-height:1.4em}
 .card{margin-top:8px;background:#21182f;border:1px solid var(--line);border-radius:17px;padding:12px}
 .row{flex-wrap:wrap}.row + .row{margin-top:9px}
@@ -50,9 +50,10 @@ dialog::backdrop{background:#0a061ace}dialog h2{margin:0;font-size:21px}dialog p
 <div class="legend"><div class="dots"><span style="--dot:var(--pink)">我</span><span style="--dot:var(--blue)">搭档</span></div><span>触碰爱心 +10</span><button type="button" class="map-toggle" id="map-toggle" aria-controls="star-map" aria-expanded="false">打开虚拟星图</button></div>
 <section class="card" id="star-map" hidden aria-labelledby="map-heading">
   <h2 id="map-heading">虚拟星图</h2>
-  <p>星图显示游戏内的位置。拖动光球即可移动。</p>
+  <p>拖动光球探索星域。星位和共鸣距离随游戏中的移动更新。</p>
   <canvas id="map-canvas" aria-hidden="true"></canvas>
   <p id="map-coordinates"></p>
+  <p id="map-resonance"></p>
 </section>
 <section class="card" aria-label="游戏选项">
   <div id="menu">
@@ -86,6 +87,15 @@ let mapSize = null;
 const colors = {me:'#ff91bf', other:'#92b9ff'};
 const scene = {width:1, height:1};
 const stars = Array.from({length:74}, () => [Math.random(), Math.random(), Math.random()]);
+const sectors = [
+  ['晨星', '天琴', '织女'],
+  ['银湾', '双星', '流云'],
+  ['星港', '天鹅', '夜航']
+];
+const constellation = [[.16,.31],[.28,.19],[.42,.36],[.54,.27],[.66,.53],[.78,.40],[.88,.59],[.62,.71],[.48,.78]];
+function starSector([x, y]) {
+  return sectors[Math.min(2, Math.floor(y * 3))][Math.min(2, Math.floor(x * 3))];
+}
 const roomPattern = /^[a-f0-9]{16}$/;
 const prefix = 'double-star-v1-';
 const homeMessage = '创建房间邀请对方，也可以先单人练习。';
@@ -434,29 +444,48 @@ function drawMap() {
     mapCtx.fill();
   };
   mapCtx.clearRect(0, 0, width, height);
-  mapCtx.lineWidth = 1;
-  mapCtx.strokeStyle = '#473657';
-  for (let i = 0; i <= 4; i++) {
-    const step = i / 4;
-    line([step, 0], [step, 1]);
-    line([0, step], [1, step]);
+  for (const [x, y, brightness] of stars) {
+    mapCtx.fillStyle = 'rgba(216, 201, 255,' + (.15 + brightness * .4) + ')';
+    mapCtx.fillRect(x * width, y * height, 1 + brightness, 1 + brightness);
   }
+  mapCtx.lineWidth = 1;
+  mapCtx.strokeStyle = '#4a3c66';
+  for (const scale of [.36, .63, .9]) {
+    mapCtx.beginPath();
+    mapCtx.ellipse(width / 2, height / 2, width * scale / 2, height * scale / 2, 0, 0, Math.PI * 2);
+    mapCtx.stroke();
+  }
+  for (let i = 1; i < constellation.length; i++) {
+    line(constellation[i - 1], constellation[i]);
+  }
+  for (const point of constellation) dot(point, '#8b8dc5', 2);
+
   const hasPartner = mode === 'online' || mode === 'practice';
   if (hasPartner) {
-    mapCtx.strokeStyle = '#9a75a8';
+    mapCtx.strokeStyle = '#c08ed1';
+    mapCtx.setLineDash([4, 4]);
     line(me, other);
-    dot(other, colors.other, 5);
+    mapCtx.setLineDash([]);
+    dot(other, colors.other, 6);
   }
-  dot(me, colors.me, 5);
+  dot(me, colors.me, 6);
   dot(heart, '#ffd69c', 4);
+
   const coordinates = point => point.map(value => Math.round(value * 100)).join(', ');
-  const coordinatesText = [
-    '我 ' + coordinates(me),
-    hasPartner ? (mode === 'practice' ? '练习搭档 ' : '搭档 ') + coordinates(other) : '',
-    '爱心 ' + coordinates(heart)
-  ].filter(Boolean).join(' · ');
+  const entries = ['我 · ' + starSector(me) + ' ' + coordinates(me)];
+  if (hasPartner) {
+    const label = mode === 'practice' ? '练习搭档' : '搭档';
+    entries.push(label + ' · ' + starSector(other) + ' ' + coordinates(other));
+  }
+  entries.push('爱心 ' + coordinates(heart));
+  const coordinatesText = entries.join(' ｜ ');
   if (ui['map-coordinates'].textContent !== coordinatesText) {
     ui['map-coordinates'].textContent = coordinatesText;
+  }
+  const separation = Math.hypot(me[0] - other[0], me[1] - other[1]) * 100;
+  const resonanceText = hasPartner ? '共鸣星距 · ' + separation.toFixed(1) + ' 星图单位' : '联机或开始练习后显示共鸣星距。';
+  if (ui['map-resonance'].textContent !== resonanceText) {
+    ui['map-resonance'].textContent = resonanceText;
   }
 }
 ui['map-toggle'].onclick = () => {
