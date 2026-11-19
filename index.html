@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#100d21">
+<title>双星连线</title>
+<style>
+:root{color-scheme:dark;--ink:#f9f1ff;--muted:#c3b6d7;--pink:#ff91bf;--blue:#92b9ff;--line:#463758}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#2d183b 0,transparent 58%),#100d21;color:var(--ink);font:16px/1.5 system-ui,sans-serif}
+main{width:min(100% - 28px,560px);margin:auto;padding:20px 0 24px}
+header,.row,.legend{display:flex;align-items:center;gap:10px}
+header,.legend{justify-content:space-between}
+h1{font-size:clamp(30px,8vw,48px);letter-spacing:.12em;margin:0;color:#ffe4f1;line-height:1.15}
+.subtitle{color:var(--muted);margin:5px 0 0;font-size:14px}
+.score{text-align:center;background:#2d2140;border:1px solid var(--line);border-radius:16px;padding:7px 14px;min-width:75px}
+.score strong,.score span{display:block}.score strong{font-size:25px;line-height:1.1;color:#ffe1ad;font-variant-numeric:tabular-nums}.score span{font-size:12px;color:var(--muted)}
+#field{display:block;margin-top:16px;width:100%;height:clamp(250px,49svh,560px);touch-action:none;background:#141027;border:1px solid var(--line);border-radius:22px;outline-offset:4px}
+.legend{padding:7px 4px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.dots{display:flex;gap:13px}.dots span::before{content:"";display:inline-block;width:8px;height:8px;margin-right:5px;border-radius:50%;background:var(--dot)}
+.card{margin-top:8px;background:#21182f;border:1px solid var(--line);border-radius:17px;padding:12px}
+.row{flex-wrap:wrap}.row + .row{margin-top:9px}
+button,input{font:inherit;min-height:42px;border:1px solid var(--line);border-radius:11px}
+button{cursor:pointer;background:#362746;color:var(--ink);padding:6px 12px}
+button.primary{background:#ffabce;color:#32162c;border-color:transparent;font-weight:700}
+button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+input{flex:1;min-width:120px;padding:6px 10px;background:#151023;color:var(--ink)}
+#status,#shared{margin:8px 2px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+dialog{width:min(90vw,380px);border:1px solid var(--line);border-radius:18px;background:#281d37;color:var(--ink);padding:20px}
+dialog::backdrop{background:#0a061ace}dialog h2{margin:0;font-size:21px}dialog p{color:var(--muted);font-size:14px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>双星连线</h1><p class="subtitle">牵动两颗星，让光线穿过爱心。</p></div>
+  <div class="score"><strong id="score">0</strong><span>默契得分</span></div>
+</header>
+<canvas id="field" tabindex="0" aria-label="游戏区。拖动光球，或用方向键移动。"></canvas>
+<div class="legend"><div class="dots"><span style="--dot:var(--pink)">我</span><span style="--dot:var(--blue)">搭档</span></div><span>触碰爱心 +10</span></div>
+<section class="card" aria-label="游戏选项">
+  <div id="menu">
+    <div class="row"><button class="primary" id="host">创建双人房间</button><button id="practice">单人练习</button></div>
+    <form class="row" id="join-form"><input id="code" placeholder="输入对方的房间码" aria-label="对方的房间码" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" required><button id="join">加入</button></form>
+  </div>
+  <div class="row" id="room" hidden>
+    <button id="invite" class="primary" hidden>复制邀请链接</button><button id="copy-code" hidden></button>
+    <button id="share" hidden>自愿共享</button><button id="leave">返回</button>
+  </div>
+  <input id="copy-fallback" class="row" aria-label="手动复制" readonly hidden>
+  <p id="status" role="status">创建房间邀请对方，也可以先单人练习。</p>
+  <p id="shared" role="status" hidden></p>
+</section>
+</main>
+<dialog id="share-dialog">
+  <h2>选择要分享的信息</h2>
+  <p>所选信息只发送一次，接收方是当前房间的搭档。定位以约 1 公里量级的网格显示。设备仅显示类别。</p>
+  <form method="dialog" class="row">
+    <button value="device">分享设备类别</button><button value="location">分享大致位置</button><button value="cancel" autofocus>取消</button>
+  </form>
+</dialog>
+<script>
+'use strict';
+const ui = Object.fromEntries([...document.querySelectorAll('[id]')].map(el => [el.id, el]));
+const canvas = ui.field;
+const ctx = canvas.getContext('2d');
+const colors = {me:'#ff91bf', other:'#92b9ff'};
+const scene = {width:1, height:1};
+const stars = Array.from({length:74}, () => [Math.random(), Math.random(), Math.random()]);
+const roomPattern = /^[a-f0-9]{16}$/;
+const prefix = 'double-star-v1-';
+const homeMessage = '创建房间邀请对方，也可以先单人练习。';
+const CDN = [
+  'https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js',
+  'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
+];
+let peer, connection, timer, library, roomCode = '', mode = 'menu', host = false;
+let session = 0, activePointer = null, pendingMove = 0;
+let me, other, heart, score, flash = 0, localStatus = '', remoteDevice = '', remoteLocation = '';
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+const validPoint = p => Array.isArray(p) && p.length === 2 && p.every(v => Number.isFinite(v) && v >= 0 && v <= 1);
+const setStatus = text => { ui.status.textContent = text; };
+
+function resetBoard() {
+  me = host ? [.26,.72] : [.74,.72];
+  other = host ? [.74,.72] : [.26,.72];
+  heart = [.5,.34];
+  setScore(0);
+  flash = 0;
+}
+function setScore(value) {
+  score = value;
+  ui.score.textContent = value;
+}
+function show(next, message) {
+  mode = next;
+  ui.menu.hidden = next !== 'menu';
+  ui.room.hidden = next === 'menu';
+  ui.invite.hidden = ui['copy-code'].hidden = next !== 'waiting';
+  ui.share.hidden = next !== 'online' || !ui['share-dialog'].showModal;
+  ui['copy-fallback'].hidden = true;
+  setStatus(message);
+}
+function stop(message = homeMessage) {
+  session++;
+  clearTimeout(timer);
+  cancelAnimationFrame(pendingMove);
+  pendingMove = 0;
+  const oldConnection = connection, oldPeer = peer;
+  connection = peer = null;
+  oldConnection?.close();
+  oldPeer?.destroy();
+  if (ui['share-dialog'].open) ui['share-dialog'].close('cancel');
+  localStatus = remoteDevice = remoteLocation = '';
+  updateShared();
+  host = false;
+  roomCode = '';
+  resetBoard();
+  show('menu', message);
+}
+function loadPeer() {
+  if (window.Peer) return Promise.resolve(window.Peer);
+  if (!library) {
+    const attempt = url => new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const fail = () => {
+        clearTimeout(timeout);
+        script.remove();
+        reject(new Error('PeerJS unavailable'));
+      };
+      const timeout = setTimeout(fail, 4500);
+      script.integrity = 'sha384-PMNj1TmCgXfW24/rfIyxYSAWwj2mffkMfguUWv08iNFcy0kTC0JN7E/tE+pJ7+fa';
+      script.crossOrigin = 'anonymous';
+      script.src = url;
+      script.onload = () => {
+        if (!window.Peer) return fail();
+        clearTimeout(timeout);
+        resolve(window.Peer);
+      };
+      script.onerror = fail;
+      document.head.append(script);
+    });
+    library = attempt(CDN[0]).catch(() => attempt(CDN[1])).catch(error => {
+      library = null;
+      throw error;
+    });
+  }
+  return library;
+}
+function makeCode() {
+  return [...crypto.getRandomValues(new Uint8Array(8))].map(n => n.toString(16).padStart(2,'0')).join('');
+}
+async function start(asHost, code) {
+  const token = ++session;
+  host = asHost;
+  roomCode = code;
+  resetBoard();
+  show('connecting', '正在连接联机服务…');
+  if (!window.RTCPeerConnection) return stop('当前浏览器不支持联机，请换用 Safari 或 Chrome。');
+  try {
+    const Peer = await loadPeer();
+    if (token !== session) return;
+    const instance = host ? new Peer(prefix + roomCode) : new Peer();
+    peer = instance;
+    timer = setTimeout(() => {
+      if (session === token) stop('连接超时。请确认双方保持页面打开，或切换网络后再试。');
+    }, 16000);
+    instance.on('open', () => {
+      if (session !== token) return;
+      if (host) {
+        clearTimeout(timer);
+        ui['copy-code'].textContent = '复制房间码';
+        show('waiting', '房间已创建。把邀请链接发给对方，并保持页面打开。');
+      } else {
+        attach(instance.connect(prefix + roomCode, {reliable:true, serialization:'json'}));
+      }
+    });
+    instance.on('connection', incoming => {
+      if (session !== token || !host || connection) return incoming.close();
+      attach(incoming);
+      timer = setTimeout(() => {
+        if (session === token && mode !== 'online') waitingAgain('连接超时，仍可邀请对方重新加入。');
+      }, 16000);
+    });
+    instance.on('error', err => {
+      if (session !== token || mode === 'online') return;
+      if (err.type === 'unavailable-id' && host) {
+        stop();
+        start(true, makeCode());
+        return;
+      }
+      stop(err.type === 'peer-unavailable' ? '未找到房间。请确认邀请有效，且对方的页面仍打开。' : '联机服务连接失败，请稍后重试或切换网络。');
+    });
+    instance.on('disconnected', () => {
+      if (session === token && mode !== 'online') stop('联机服务已断开，请重新创建或加入。');
+    });
+  } catch {
+    if (token === session) stop('联机组件加载失败。请在 Safari 或 Chrome 中重试，或先单人练习。');
+  }
+}
+function waitingAgain(message) {
+  clearTimeout(timer);
+  const old = connection;
+  connection = null;
+  old?.close();
+  show('waiting', message);
+}
+function attach(link) {
+  if (!link) return stop('无法建立连接，请重试。');
+  connection = link;
+  const opened = () => {
+    if (connection !== link || mode === 'online') return;
+    clearTimeout(timer);
+    show('online', '已联机。拖动光球，用两人之间的连线穿过爱心。');
+    send({type:'move', point:me});
+    if (host) {
+      checkHit();
+      sendBoard();
+    }
+  };
+  const ended = () => {
+    if (connection !== link) return;
+    if (host && mode === 'waiting') return waitingAgain('连接未建立，仍可邀请对方重新加入。');
+    stop('搭档已断开。可重新创建或加入房间。');
+  };
+  link.on('open', opened);
+  link.on('data', data => {
+    if (connection === link) receive(data);
+  });
+  link.on('close', ended);
+  link.on('error', ended);
+  if (link.open) opened();
+}
+function send(message) {
+  if (connection?.open) connection.send(message);
+}
+function sendBoard() {
+  send({type:'board', heart, score});
+}
+function receive(data) {
+  if (mode !== 'online' || !data || typeof data !== 'object') return;
+  if (data.type === 'move' && validPoint(data.point)) {
+    other = data.point;
+    checkHit();
+  }
+  if (!host && data.type === 'board' && validPoint(data.heart) && Number.isSafeInteger(data.score) && data.score >= 0) {
+    if (data.score > score) flash = performance.now();
+    heart = data.heart;
+    setScore(data.score);
+  }
+  if (data.type === 'device' && ['iPhone','iPad','Android','电脑或其他设备'].includes(data.value)) {
+    remoteDevice = data.value;
+    updateShared();
+  }
+  if (data.type === 'location' && Array.isArray(data.value) && data.value.length === 2 &&
+    data.value.every(Number.isInteger) && Math.abs(data.value[0]) <= 9000 && Math.abs(data.value[1]) <= 18000) {
+    remoteLocation = data.value.map(n => (n / 100).toFixed(2)).join(', ');
+    updateShared();
+  }
+}
+function updateShared() {
+  const labels = [localStatus, remoteDevice && '搭档设备：' + remoteDevice, remoteLocation && '搭档大致位置：' + remoteLocation].filter(Boolean);
+  ui.shared.textContent = labels.join(' ｜ ');
+  ui.shared.hidden = !labels.length;
+}
+function deviceCategory() {
+  const ua = navigator.userAgent;
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android';
+  return '电脑或其他设备';
+}
+function shareOnce(choice) {
+  const recipient = connection;
+  if (mode !== 'online' || !recipient?.open || !['device','location'].includes(choice)) return;
+  if (choice === 'device') {
+    send({type:'device', value:deviceCategory()});
+    localStatus = '已分享设备类别。';
+    return updateShared();
+  }
+  if (!isSecureContext || !navigator.geolocation) {
+    localStatus = '当前浏览器无法提供定位。';
+    return updateShared();
+  }
+  localStatus = '正在获取大致位置…';
+  updateShared();
+  navigator.geolocation.getCurrentPosition(position => {
+    if (connection !== recipient || !recipient.open) return;
+    const {latitude, longitude} = position.coords;
+    send({type:'location', value:[Math.round(latitude * 100), Math.round(longitude * 100)]});
+    localStatus = '已分享一次大致位置。';
+    updateShared();
+  }, () => {
+    if (connection !== recipient) return;
+    localStatus = '未获得定位权限或定位超时。';
+    updateShared();
+  }, {enableHighAccuracy:false, timeout:10000, maximumAge:0});
+}
+function distance(point, a, b) {
+  const dx = b[0]-a[0], dy = b[1]-a[1];
+  const lengthSquared = dx * dx + dy * dy;
+  const along = lengthSquared ? clamp(((point[0]-a[0])*dx + (point[1]-a[1])*dy)/lengthSquared,0,1) : 0;
+  return Math.hypot(point[0]-a[0]-dx*along, point[1]-a[1]-dy*along);
+}
+function checkHit() {
+  if (!(mode === 'practice' || (mode === 'online' && host))) return;
+  // Use shared game coordinates so the two players can have different display sizes.
+  if (distance(heart, me, other) > .035) return;
+  setScore(score + 10);
+  flash = performance.now();
+  do {
+    heart = [.1 + Math.random() * .8, .12 + Math.random() * .76];
+  } while (distance(heart, me, other) < .13);
+  if (mode === 'online') sendBoard();
+}
+function move(x, y) {
+  if (mode !== 'practice' && mode !== 'online') return;
+  me = [clamp(x,.045,.955), clamp(y,.045,.955)];
+  checkHit();
+  if (mode === 'online' && !pendingMove) {
+    const token = session;
+    pendingMove = requestAnimationFrame(() => {
+      pendingMove = 0;
+      if (token === session && mode === 'online') send({type:'move', point:me});
+    });
+  }
+}
+function moveFromPointer(event) {
+  const r = canvas.getBoundingClientRect();
+  move((event.clientX-r.left)/r.width, (event.clientY-r.top)/r.height);
+}
+canvas.addEventListener('pointerdown', event => {
+  if (activePointer !== null || event.button !== 0) return;
+  activePointer = event.pointerId;
+  canvas.setPointerCapture(event.pointerId);
+  moveFromPointer(event);
+});
+canvas.addEventListener('pointermove', event => {
+  if (activePointer === event.pointerId) moveFromPointer(event);
+});
+canvas.addEventListener('lostpointercapture', event => {
+  if (activePointer === event.pointerId) activePointer = null;
+});
+canvas.addEventListener('keydown', event => {
+  const step = {ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]}[event.key];
+  if (!step) return;
+  event.preventDefault();
+  move(me[0]+step[0]*.025,me[1]+step[1]*.025);
+});
+function resize() {
+  const rect = canvas.getBoundingClientRect();
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  scene.width = rect.width;
+  scene.height = rect.height;
+  canvas.width = Math.round(rect.width * ratio);
+  canvas.height = Math.round(rect.height * ratio);
+  ctx.setTransform(ratio,0,0,ratio,0,0);
+}
+function orb(x,y,color,label) {
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x,y,14,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = '#24152d';
+  ctx.font = 'bold 12px system-ui';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label,x,y);
+}
+function drawHeart(x,y) {
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.fillStyle = '#ffd69c';
+  ctx.shadowColor = '#ff947c';
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  ctx.moveTo(0,10);
+  ctx.bezierCurveTo(-24,-4,-10,-17,0,-8);
+  ctx.bezierCurveTo(10,-17,24,-4,0,10);
+  ctx.fill();
+  ctx.restore();
+}
+function render(now) {
+  const {width:w,height:h} = scene;
+  ctx.clearRect(0,0,w,h);
+  for (const [x,y,a] of stars) {
+    ctx.fillStyle = 'rgba(222,195,255,' + (.16+a*.45) + ')';
+    ctx.fillRect(x*w,y*h,1+a,1+a);
+  }
+  const [mx,my] = [me[0]*w,me[1]*h];
+  const [ox,oy] = [other[0]*w,other[1]*h];
+  const grad = ctx.createLinearGradient(mx,my,ox,oy);
+  grad.addColorStop(0,colors.me);
+  grad.addColorStop(1,colors.other);
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = mode === 'online' || mode === 'practice' ? .94 : .38;
+  ctx.beginPath();
+  ctx.moveTo(mx,my);
+  ctx.lineTo(ox,oy);
+  ctx.stroke();
+  orb(ox,oy,colors.other,mode === 'practice' ? '★' : 'TA');
+  orb(mx,my,colors.me,'我');
+  ctx.globalAlpha = 1;
+  drawHeart(heart[0]*w,heart[1]*h);
+  if (flash && now-flash < 550) {
+    ctx.globalAlpha = 1 - (now-flash)/550;
+    ctx.fillStyle = '#ffe1ad';
+    ctx.font = 'bold 24px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('+10',w*.5,h*.19-(now-flash)/26);
+    ctx.globalAlpha = 1;
+  }
+  requestAnimationFrame(render);
+}
+async function copy(value, success) {
+  const token = session;
+  try {
+    await navigator.clipboard.writeText(value);
+    if (session === token && mode === 'waiting') setStatus(success);
+  } catch {
+    if (session !== token || mode !== 'waiting') return;
+    ui['copy-fallback'].value = value;
+    ui['copy-fallback'].hidden = false;
+    ui['copy-fallback'].focus();
+    ui['copy-fallback'].select();
+    setStatus('请长按选中的文字，手动复制。');
+  }
+}
+ui.host.onclick = () => start(true, makeCode());
+ui.practice.onclick = () => {
+  host = true;
+  resetBoard();
+  show('practice', '拖动粉色光球，让它和蓝色光球之间的连线穿过爱心。');
+};
+ui.leave.onclick = () => stop();
+ui.share.onclick = () => {
+  ui['share-dialog'].returnValue = 'cancel';
+  ui['share-dialog'].showModal();
+};
+ui['share-dialog'].addEventListener('close', () => shareOnce(ui['share-dialog'].returnValue));
+ui['share-dialog'].addEventListener('cancel', () => { ui['share-dialog'].returnValue = 'cancel'; });
+ui.invite.onclick = () => {
+  if (!['https:','http:'].includes(location.protocol)) {
+    return setStatus('本地文件请复制房间码发送给对方。');
+  }
+  const url = new URL(location.href);
+  url.hash = 'room=' + roomCode;
+  copy(url.href, '已复制邀请链接，可以发给对方了。');
+};
+ui['copy-code'].onclick = () => copy(roomCode, '已复制房间码，可以发给对方了。');
+ui['join-form'].onsubmit = event => {
+  event.preventDefault();
+  const code = ui.code.value.toLowerCase().replace(/[\s-]/g,'');
+  if (!roomPattern.test(code)) return setStatus('请输入完整的 16 位房间码。');
+  start(false, code);
+};
+const inviteCode = new URLSearchParams(location.hash.slice(1)).get('room');
+if (roomPattern.test(inviteCode || '')) {
+  ui.code.value = inviteCode;
+  ui.join.textContent = '加入邀请';
+  setStatus('收到双人邀请，点击「加入邀请」开始连接。');
+}
+resetBoard();
+resize();
+new ResizeObserver(resize).observe(canvas);
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
