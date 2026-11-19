@@ -25,6 +25,7 @@ h1{font-size:clamp(30px,8vw,48px);letter-spacing:.12em;margin:0;color:#ffe4f1;li
 button,input{font:inherit;min-height:42px;border:1px solid var(--line);border-radius:11px}
 button{cursor:pointer;background:#362746;color:var(--ink);padding:6px 12px}
 button.primary{background:#ffabce;color:#32162c;border-color:transparent;font-weight:700}
+#copy-code{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 input{flex:1;min-width:120px;padding:6px 10px;background:#151023;color:var(--ink)}
 #status,#shared{margin:8px 2px 0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
@@ -172,7 +173,8 @@ async function start(asHost, code) {
       if (session !== token) return;
       if (host) {
         clearTimeout(timer);
-        ui['copy-code'].textContent = '复制房间码';
+        ui['copy-code'].textContent = roomCode;
+        ui['copy-code'].setAttribute('aria-label', '复制房间码 ' + roomCode);
         show('waiting', '房间已创建。把邀请链接发给对方，并保持页面打开。');
       } else {
         attach(instance.connect(prefix + roomCode, {reliable:true, serialization:'json'}));
